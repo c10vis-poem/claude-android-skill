@@ -1,0 +1,67 @@
+{
+  "version": "2.0",
+  "description": "Phase 3 activation gates. ALL must be true before LoRA fine-tuning begins.",
+  "current_phase": 1,
+  "phase3_gates": {
+    "base_agent_stable_weeks": {
+      "required": 2,
+      "current": 0,
+      "met": false
+    },
+    "min_interaction_logs": {
+      "required": 500,
+      "current": 0,
+      "met": false
+    },
+    "jetson_postgres_operational": {
+      "required": true,
+      "current": false,
+      "met": false
+    },
+    "dip_metrics_live": {
+      "required": true,
+      "current": false,
+      "met": false
+    },
+    "docker_cli2_validated": {
+      "required": true,
+      "current": false,
+      "met": false
+    },
+    "cost_estimate_completed": {
+      "required": true,
+      "current": false,
+      "met": false
+    }
+  },
+  "sharpening_cadence": {
+    "month_1": {
+      "interval_days": 5,
+      "rationale": "Fast correction of base behavior errors"
+    },
+    "month_2": {
+      "interval_days": 10,
+      "rationale": "Stabilization phase"
+    },
+    "month_3_plus": {
+      "interval_days": 20,
+      "rationale": "Mature agent — mostly maintenance"
+    },
+    "dip_override": {
+      "enabled": true,
+      "rationale": "Performance dip triggers override timer immediately"
+    }
+  },
+  "training_flow": [
+    "1. Logs accumulate on Razr → synced to Jetson hourly",
+    "2. Docker CLI #1 runs pattern detection (local Jetson model)",
+    "3. Docker CLI #2 audits findings + confidence scoring",
+    "4. Derek reviews CLI #2 report (human gate)",
+    "5. Approved patterns → Vertex AI LoRA fine-tune",
+    "6. Fresh adapter pushed back to Omni Neural on Razr",
+    "7. Docker CLI #2 writes lessons to /nova/wiki/patterns/"
+  ],
+  "last_sharpening": null,
+  "next_sharpening": null,
+  "total_sharpenings": 0
+}

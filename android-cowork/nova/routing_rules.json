@@ -1,0 +1,113 @@
+{
+  "version": "2.0",
+  "description": "N0.V4 endpoint selection logic. Edit to match your live API keys and Jetson IP.",
+  "modes": {
+    "full": {
+      "description": "Everything online, artifact API ON",
+      "ptl": "haiku",
+      "edge": "omni-neural-4b",
+      "frontier": "artifact-api",
+      "tools": "jetson-p2p-or-tailscale"
+    },
+    "frontier_off": {
+      "description": "Artifact API OFF — route to external frontier PWAs",
+      "ptl": "gemini-flash",
+      "edge": "omni-neural-4b",
+      "frontier": "external-pwas",
+      "tools": "jetson-tailscale"
+    },
+    "pure_edge": {
+      "description": "All frontier OFF — offline/mission-critical mode",
+      "ptl": null,
+      "edge": "omni-neural-4b",
+      "frontier": null,
+      "tools": "queued"
+    }
+  },
+  "routing_logic": [
+    {
+      "condition": "task_type == 'vision' OR task_type == 'screen_analysis'",
+      "route": "omni-neural-4b",
+      "reason": "Screen data never leaves device"
+    },
+    {
+      "condition": "task_type == 'ptl_cleaning'",
+      "route": "claude-haiku-4-5",
+      "fallback": "gemini-flash",
+      "reason": "Cheap fast prompt cleaning"
+    },
+    {
+      "condition": "task_type == 'heavy_reasoning'",
+      "route": "claude-sonnet-4-6",
+      "fallback": "gemini-pro",
+      "reason": "Complex tasks need frontier"
+    },
+    {
+      "condition": "task_type == 'code'",
+      "route": "claude-sonnet-4-6",
+      "fallback": "claude-haiku-4-5",
+      "reason": "Code quality matters"
+    },
+    {
+      "condition": "task_type == 'quick_answer'",
+      "route": "omni-neural-4b",
+      "reason": "Fast local, no latency"
+    },
+    {
+      "condition": "token_budget == 'tight'",
+      "route": "omni-neural-4b",
+      "fallback": "claude-haiku-4-5",
+      "reason": "Cost control"
+    },
+    {
+      "condition": "internet == false",
+      "route": "omni-neural-4b",
+      "reason": "Offline fallback"
+    }
+  ],
+  "endpoints": {
+    "omni-neural-4b": {
+      "url": "http://localhost:11434/v1/chat/completions",
+      "type": "ollama",
+      "hardware": "snapdragon-8-elite-vulkan",
+      "offline_capable": true
+    },
+    "jetson-ollama": {
+      "url": "http://jetson.local:11434/api/chat",
+      "type": "ollama",
+      "hardware": "jetson-orin-cuda",
+      "requires": "tailscale-or-p2p"
+    },
+    "jetson-ptl": {
+      "url": "http://jetson.local:8080",
+      "type": "mcp",
+      "role": "prompt-translation-layer",
+      "requires": "tailscale-or-p2p"
+    },
+    "claude-haiku-4-5": {
+      "url": "https://api.anthropic.com/v1/messages",
+      "model": "claude-haiku-4-5",
+      "type": "anthropic",
+      "via": "vertex-or-direct"
+    },
+    "claude-sonnet-4-6": {
+      "url": "https://api.anthropic.com/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "type": "anthropic",
+      "via": "vertex-or-direct"
+    },
+    "gemini-flash": {
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent",
+      "type": "google"
+    },
+    "gemini-pro": {
+      "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+      "type": "google"
+    },
+    "perplexity": {
+      "url": "https://api.perplexity.ai/chat/completions",
+      "model": "llama-3.1-sonar-large-128k-online",
+      "type": "openai-compat"
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "version": "2.0",
+  "description": "Docker CLI #2 watchdog criteria. All thresholds tunable.",
+  "failure_types": {
+    "sycophantic_confirmation": {
+      "description": "Model agrees with incorrect data and builds on it",
+      "detection": [
+        "model repeats user claim without verification",
+        "confidence high on factually wrong output",
+        "output contradicts earlier session context"
+      ],
+      "severity": "high",
+      "auto_flag": true
+    },
+    "silent_failure": {
+      "description": "Output looks correct but is functionally wrong",
+      "detection": [
+        "file delivered but protocol missed",
+        "success reported but performance degraded",
+        "task marked done but artifacts missing"
+      ],
+      "severity": "critical",
+      "auto_flag": true
+    },
+    "context_degradation": {
+      "description": "Quality dropped as session or context grew long",
+      "detection": [
+        "earlier instructions ignored in long session",
+        "model reverts to generic behavior",
+        "log corruption or misinterpretation"
+      ],
+      "severity": "medium",
+      "auto_flag": false
+    },
+    "cascading_failure": {
+      "description": "One failure propagated through the chain",
+      "detection": [
+        "bad routing decision led to wrong model",
+        "PTL cleaning error caused downstream hallucination",
+        "multiple consecutive tool errors"
+      ],
+      "severity": "high",
+      "auto_flag": true
+    },
+    "self_gaslighting": {
+      "description": "Model retraining on its own fabrications",
+      "detection": [
+        "training pair sourced from hallucinated output",
+        "wiki entry contradicts raw log",
+        "confidence high on unverified pattern"
+      ],
+      "severity": "critical",
+      "auto_flag": true,
+      "blocks_training": true
+    },
+    "specification_drift": {
+      "description": "Agent forgot or drifted from original intent",
+      "detection": [
+        "output diverged from routing_rules spec",
+        "task scope expanded without approval",
+        "original constraints ignored mid-session"
+      ],
+      "severity": "medium",
+      "auto_flag": false
+    }
+  },
+  "dip_triggers": {
+    "ui_misidentification_rate": {
+      "threshold": 0.10,
+      "window": "24h",
+      "action": "trigger_early_sharpening"
+    },
+    "frontier_escalation_errors": {
+      "threshold": 0.15,
+      "window": "24h",
+      "action": "review_routing_rules"
+    },
+    "user_corrections_per_session": {
+      "threshold": 3,
+      "window": "session",
+      "action": "flag_for_audit"
+    },
+    "contradiction_count_48hr": {
+      "threshold": 5,
+      "window": "48h",
+      "action": "pause_wiki_compilation"
+    }
+  },
+  "confidence_scoring": {
+    "source": "headkey-jdbranham",
+    "verdicts": ["reinforce", "weaken", "qualify", "contradict", "create"],
+    "human_review_threshold": 0.6,
+    "auto_approve_threshold": 0.85,
+    "auto_reject_threshold": 0.3
+  }
+}
