@@ -2,18 +2,22 @@
 """
 Android Voice Bridge for Claude Code
 
-Orchestrates: mic → Whisper STT → Claude Code → Piper TTS → speaker
+Orchestrates: mic → Whisper STT → Claude Code → Kokoro/Piper TTS → speaker
 
 Usage:
   python3 voice_bridge.py              # Interactive voice loop
   python3 voice_bridge.py --test       # Test pipeline (no microphone needed)
   python3 voice_bridge.py --once       # Single voice command, then exit
   python3 voice_bridge.py --text ".." # Skip STT, send text directly
+  python3 voice_bridge.py --voice am_michael  # Choose Kokoro voice
+
+Voice options (Kokoro): af_heart, af_bella, af_nova, am_michael, am_fenrir
+TTS priority: Kokoro > Piper > Android TTS (termux-tts-speak)
 
 Requires:
-  - Termux:API installed and microphone permission granted
+  - Termux:API installed + microphone permission granted
   - Whisper.cpp built (setup/4_voice_setup.sh)
-  - Piper TTS installed (setup/4_voice_setup.sh)
+  - Kokoro TTS (setup/4b_kokoro_tts.sh) OR Piper (setup/4_voice_setup.sh)
   - Claude Code CLI installed (setup/2_claude_superclaude.sh)
 """
 import argparse
@@ -22,7 +26,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import json
 from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────────
@@ -33,134 +36,156 @@ WHISPER_BIN   = os.environ.get("WHISPER_BIN",   str(VOICE_DIR / "whisper.cpp/bui
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", str(VOICE_DIR / "whisper.cpp/models/ggml-base.en.bin"))
 PIPER_BIN     = os.environ.get("PIPER_BIN",     str(VOICE_DIR / "piper/piper"))
 PIPER_MODEL   = os.environ.get("PIPER_MODEL",   str(VOICE_DIR / "piper/voices/en_US-ryan-high.onnx"))
+KOKORO_VOICE  = os.environ.get("KOKORO_VOICE",  "af_heart")
 
-RECORD_DURATION   = int(os.environ.get("RECORD_SECONDS", "8"))
+RECORD_DURATION    = int(os.environ.get("RECORD_SECONDS", "8"))
 MAX_RESPONSE_SPEAK = int(os.environ.get("MAX_SPEAK_CHARS", "600"))
-WORK_DIR          = os.environ.get("CLAUDE_WORKDIR", str(HOME))
+WORK_DIR           = os.environ.get("CLAUDE_WORKDIR", str(HOME))
 
 STOP_WORDS = {"stop", "exit", "quit", "goodbye", "bye", "cancel"}
 
-# ── Audio helpers ───────────────────────────────────────────────────────────────
+
+# ── TTS: Kokoro (best quality) ─────────────────────────────────────────────────────
+
+_kokoro_pipeline = None
+
+def _get_kokoro(voice: str):
+    """Lazy-load Kokoro pipeline (downloads model on first call)."""
+    global _kokoro_pipeline
+    try:
+        from kokoro import KPipeline  # type: ignore
+        if _kokoro_pipeline is None:
+            print("  [Kokoro] Loading voice model...")
+            _kokoro_pipeline = KPipeline(lang_code='a')
+        return _kokoro_pipeline, voice
+    except ImportError:
+        return None, None
+
+
+def speak_kokoro(text: str, voice: str = KOKORO_VOICE) -> bool:
+    """Speak with Kokoro TTS. Returns True if successful."""
+    try:
+        import soundfile as sf  # type: ignore
+        pipeline, v = _get_kokoro(voice)
+        if pipeline is None:
+            return False
+
+        tmp = tempfile.mktemp(suffix=".wav", prefix="kokoro_")
+        for i, (gs, ps, audio) in enumerate(pipeline(text, voice=v)):
+            sf.write(tmp, audio, 24000)
+            subprocess.run(["termux-media-player", "play", tmp],
+                          capture_output=True, timeout=60)
+            word_count = len(text.split())
+            time.sleep(max(1.5, word_count / 2.5))
+            Path(tmp).unlink(missing_ok=True)
+            break
+        return True
+    except Exception as e:
+        print(f"  [Kokoro error: {e}]")
+        return False
+
+
+def speak_piper(text: str) -> bool:
+    """Speak with Piper TTS. Returns True if successful."""
+    if not Path(PIPER_BIN).exists() or not Path(PIPER_MODEL).exists():
+        return False
+    tmp = tempfile.mktemp(suffix=".wav", prefix="piper_")
+    try:
+        subprocess.run(
+            [PIPER_BIN, "--model", PIPER_MODEL, "--output_file", tmp],
+            input=text.encode(), capture_output=True, timeout=30
+        )
+        subprocess.run(["termux-media-player", "play", tmp],
+                      capture_output=True, timeout=60)
+        time.sleep(max(1.5, len(text.split()) / 2.5))
+        return True
+    except Exception as e:
+        print(f"  [Piper error: {e}]")
+        return False
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def speak(text: str, voice: str = KOKORO_VOICE) -> None:
+    """Speak text. Priority: Kokoro > Piper > Android TTS."""
+    text = text[:MAX_RESPONSE_SPEAK].strip()
+    if not text:
+        return
+    if speak_kokoro(text, voice):
+        return
+    if speak_piper(text):
+        return
+    # Final fallback: Android built-in TTS
+    try:
+        subprocess.run(["termux-tts-speak", text], timeout=60)
+    except Exception:
+        print(f"  [TTS]: {text}")
+
+
+# ── STT: Whisper.cpp ─────────────────────────────────────────────────────────────────
 
 def record_audio(duration: int = RECORD_DURATION) -> str:
-    """Record audio using Termux:API. Returns path to WAV file."""
     tmp = tempfile.mktemp(suffix=".wav", prefix="claude_voice_")
-    print(f"  [Recording for {duration}s... speak now]")
+    print(f"  [Recording {duration}s… speak now]")
     result = subprocess.run(
         ["termux-microphone-record", "-l", str(duration), "-f", "wav", "-o", tmp],
         capture_output=True, text=True, timeout=duration + 10
     )
     if result.returncode != 0:
         raise RuntimeError(
-            f"Microphone recording failed: {result.stderr}\n"
-            "Ensure Termux:API is installed and microphone permission is granted."
+            f"Mic failed: {result.stderr}\n"
+            "Check: Termux:API app installed + mic permission granted in Android Settings."
         )
     return tmp
 
 
 def transcribe(audio_path: str) -> str:
-    """Transcribe audio file to text using Whisper.cpp."""
     if not Path(WHISPER_BIN).exists():
         raise FileNotFoundError(
-            f"Whisper binary not found at {WHISPER_BIN}\n"
+            f"Whisper not found at {WHISPER_BIN}\n"
             "Run: bash ~/android-cowork/setup/4_voice_setup.sh"
         )
     out_base = audio_path.replace(".wav", "")
-    result = subprocess.run(
-        [
-            WHISPER_BIN,
-            "-m", WHISPER_MODEL,
-            "-f", audio_path,
-            "-nt",  # no timestamps
-            "--output-txt",
-            "--output-file", out_base,
-        ],
+    subprocess.run(
+        [WHISPER_BIN, "-m", WHISPER_MODEL, "-f", audio_path,
+         "-nt", "--output-txt", "--output-file", out_base],
         capture_output=True, text=True, timeout=60
     )
-    txt_path = out_base + ".txt"
-    if Path(txt_path).exists():
-        text = Path(txt_path).read_text().strip()
-        Path(txt_path).unlink(missing_ok=True)
-        return text
-    return result.stdout.strip()
+    txt = Path(out_base + ".txt")
+    text = txt.read_text().strip() if txt.exists() else ""
+    txt.unlink(missing_ok=True)
+    return text
 
 
-def speak(text: str) -> None:
-    """Speak text using Piper TTS. Falls back to Termux TTS."""
-    text = text[:MAX_RESPONSE_SPEAK].strip()
-    if not text:
-        return
+# ── Claude ───────────────────────────────────────────────────────────────────────────
 
-    # Try Piper (local neural TTS)
-    if Path(PIPER_BIN).exists() and Path(PIPER_MODEL).exists():
-        tmp_wav = tempfile.mktemp(suffix=".wav", prefix="piper_")
-        try:
-            subprocess.run(
-                [PIPER_BIN, "--model", PIPER_MODEL, "--output_file", tmp_wav],
-                input=text.encode(),
-                capture_output=True,
-                timeout=30
-            )
-            # Play via Termux media player
-            subprocess.run(
-                ["termux-media-player", "play", tmp_wav],
-                capture_output=True, timeout=60
-            )
-            # Wait for playback to finish (estimate ~150 wpm)
-            word_count = len(text.split())
-            wait_time = max(2, word_count / 2.5)
-            time.sleep(wait_time)
-            return
-        except Exception as e:
-            print(f"  [Piper error: {e}, falling back to Android TTS]")
-        finally:
-            Path(tmp_wav).unlink(missing_ok=True)
-
-    # Fallback: Termux Android TTS
-    try:
-        subprocess.run(["termux-tts-speak", text], timeout=60)
-    except Exception:
-        print(f"  [TTS output]: {text}")
-
-
-# ── Claude interaction ──────────────────────────────────────────────────────────
-
-def ask_claude(prompt: str, work_dir: str = WORK_DIR) -> str:
-    """Send a prompt to Claude Code and return the response."""
-    env = os.environ.copy()
-
+def ask_claude(prompt: str) -> str:
     result = subprocess.run(
         ["claude", "--print", prompt],
-        capture_output=True,
-        text=True,
-        cwd=work_dir,
-        env=env,
-        timeout=180
+        capture_output=True, text=True,
+        cwd=WORK_DIR, env=os.environ.copy(), timeout=180
     )
     if result.returncode != 0:
-        error = result.stderr.strip() or "Claude returned non-zero exit code"
-        return f"Error from Claude: {error}"
+        return f"Error: {result.stderr.strip() or 'Claude exited with error'}"
     return result.stdout.strip()
 
 
-# ── Voice loop ──────────────────────────────────────────────────────────────────
+# ── Main loop ────────────────────────────────────────────────────────────────────────
 
-def voice_loop(once: bool = False) -> None:
-    """Main interactive voice loop."""
+def voice_loop(once: bool = False, voice: str = KOKORO_VOICE) -> None:
     print("\n╔═══════════════════════════════════════╗")
-    print("║   Android Voice Bridge — Claude Code  ║")
-    print("╠═══════════════════════════════════════╣")
-    print("║ Press Enter to record, then speak.    ║")
-    print("║ Say 'stop' or 'exit' to quit.         ║")
-    print("╚═══════════════════════════════════════╝\n")
+    print("║  Android Voice Bridge — Claude Code   ║")
+    print("║  Voice: {:30s}  ║".format(voice))
+    print("╚═══════════════════════════════════════╝")
+    print("Press Enter to record. Say 'stop' to quit.\n")
 
-    speak("Voice bridge ready. Press enter to begin.")
+    speak("Voice bridge ready. Press enter to begin.", voice)
 
     while True:
         try:
-            input("\n[Press Enter to speak] ")
+            input("[Press Enter to speak] ")
         except (KeyboardInterrupt, EOFError):
-            speak("Goodbye.")
+            speak("Goodbye.", voice)
             break
 
         audio_path = None
@@ -170,77 +195,74 @@ def voice_loop(once: bool = False) -> None:
             text = transcribe(audio_path)
 
             if not text or len(text.strip()) < 3:
-                print("  [No speech detected, try again]")
+                print("  [No speech detected]")
                 continue
 
             print(f"\n  You: {text}")
 
             if any(w in text.lower().split() for w in STOP_WORDS):
-                speak("Goodbye.")
+                speak("Goodbye.", voice)
                 break
 
-            speak("Processing...")
+            speak("Got it. Asking Claude.", voice)
             print("  [Asking Claude...]")
             response = ask_claude(text)
-
             print(f"\n  Claude: {response}\n")
-            speak(response)
+            speak(response, voice)
 
         except KeyboardInterrupt:
-            speak("Goodbye.")
+            speak("Goodbye.", voice)
             break
         except Exception as e:
-            msg = f"Error: {e}"
-            print(f"  [!] {msg}")
-            speak("An error occurred. Please try again.")
+            print(f"  [!] {e}")
+            speak("Error occurred. Try again.", voice)
         finally:
-            if audio_path and Path(audio_path).exists():
+            if audio_path:
                 Path(audio_path).unlink(missing_ok=True)
 
         if once:
             break
 
 
-def test_pipeline() -> None:
-    """Smoke-test the voice pipeline without microphone."""
-    print("Testing voice pipeline...")
+def test_pipeline(voice: str = KOKORO_VOICE) -> None:
+    print("Testing voice pipeline...\n")
 
-    print("  [1/3] Testing TTS...")
-    speak("Voice pipeline test. Step one of three passed.")
-    print("  TTS OK")
+    print("  [1/3] TTS test...")
+    speak("Voice pipeline test. Step one of three.", voice)
+    print("  TTS: OK")
 
-    print("  [2/3] Testing Claude Code...")
-    response = ask_claude("Reply with exactly: voice bridge test successful")
-    print(f"  Claude response: {response[:100]}")
+    print("  [2/3] Claude Code test...")
+    response = ask_claude("Reply with exactly five words: voice bridge test is successful")
+    print(f"  Claude: {response[:80]}")
 
-    print("  [3/3] Testing Whisper binary presence...")
+    print("  [3/3] Whisper presence check...")
     whisper_ok = Path(WHISPER_BIN).exists()
     model_ok   = Path(WHISPER_MODEL).exists()
-    print(f"  Whisper binary: {'OK' if whisper_ok else 'MISSING — run setup/4_voice_setup.sh'}")
-    print(f"  Whisper model:  {'OK' if model_ok else 'MISSING — run setup/4_voice_setup.sh'}")
+    print(f"  Whisper binary : {'OK' if whisper_ok else 'MISSING — run setup/4_voice_setup.sh'}")
+    print(f"  Whisper model  : {'OK' if model_ok  else 'MISSING — run setup/4_voice_setup.sh'}")
 
-    speak("Pipeline test complete. Check terminal for results.")
-    print("\nTest done.")
+    speak("Test complete. Check terminal for results.", voice)
+    print("\nAll tests done.")
 
-
-# ── Entry point ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Android Voice Bridge for Claude Code")
-    parser.add_argument("--test",  action="store_true", help="Test pipeline without mic")
-    parser.add_argument("--once",  action="store_true", help="Single command then exit")
-    parser.add_argument("--text",  type=str, default=None, help="Send text directly, skip STT")
+    parser.add_argument("--test",  action="store_true")
+    parser.add_argument("--once",  action="store_true")
+    parser.add_argument("--text",  type=str, default=None)
+    parser.add_argument("--voice", type=str, default=KOKORO_VOICE,
+                        help="Kokoro voice: af_heart af_bella af_nova am_michael am_fenrir")
     args = parser.parse_args()
 
     if args.test:
-        test_pipeline()
+        test_pipeline(args.voice)
     elif args.text:
         print(f"Sending: {args.text}")
         response = ask_claude(args.text)
         print(f"Claude: {response}")
-        speak(response)
+        speak(response, args.voice)
     else:
-        voice_loop(once=args.once)
+        voice_loop(once=args.once, voice=args.voice)
 
 
 if __name__ == "__main__":
