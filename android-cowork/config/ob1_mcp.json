@@ -1,0 +1,24 @@
+{
+  "open-brain-mcp": {
+    "description": "OB1 Open Brain MCP server — persistent vector memory across all AI sessions",
+    "command": "node",
+    "args": ["/path/to/ob1-mcp-server/index.js"],
+    "env": {
+      "SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
+      "SUPABASE_SERVICE_KEY": "YOUR_SERVICE_ROLE_KEY",
+      "SUPABASE_ANON_KEY": "YOUR_ANON_KEY"
+    },
+    "tools": [
+      "capture_thought",
+      "search_thoughts",
+      "recall_context",
+      "list_recent"
+    ],
+    "notes": [
+      "OB1 repo: https://github.com/c10vis-poem/ob1",
+      "Follow docs/01-getting-started.md to deploy Supabase + MCP server first.",
+      "Replace SUPABASE_URL and keys with your actual project values.",
+      "The MCP server path depends on where you cloned the ob1 repo."
+    ]
+  }
+}

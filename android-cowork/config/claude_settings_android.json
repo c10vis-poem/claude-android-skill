@@ -1,0 +1,52 @@
+{
+  "$schema": "https://claude.ai/schema/settings.json",
+
+  "permissions": {
+    "allow": [
+      "Bash(termux-*:*)",
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pipx *)",
+      "Bash(superclaude *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(adb *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(chmod *)"
+    ]
+  },
+
+  "mcpServers": {
+    "open-brain": {
+      "command": "node",
+      "args": ["REPLACE_WITH_PATH_TO_OB1_MCP_SERVER/index.js"],
+      "env": {
+        "SUPABASE_URL": "REPLACE_WITH_YOUR_SUPABASE_URL",
+        "SUPABASE_SERVICE_KEY": "REPLACE_WITH_YOUR_SERVICE_KEY"
+      }
+    }
+  },
+
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $HOME/android-cowork/agent/reasoning_capture.py"
+          }
+        ]
+      }
+    ]
+  }
+}
