@@ -1,199 +1,242 @@
-# Android AI Workstation — Complete Setup Guide
+# Android AI Workstation — Setup Guide
 
-Estimated time: 30–45 minutes on a modern Android device (2021+).
+Estimated time: 30–45 min on a 2021+ Android device.
 
-## Prerequisites
-
-### Hardware
-- Android 10+ (ARM64 / aarch64)
-- 4 GB RAM minimum, 8 GB recommended for Whisper
-- 8 GB free storage (models + tools)
-- Stable internet for initial downloads (offline after setup)
-
-### Accounts
-- **Google Cloud** account with Vertex AI enabled and billing
-- **Claude.ai** Pro account (or Anthropic API key as fallback)
-- **Supabase** project for OB1 brain (free tier works)
-- **GitHub** account (for cloning repos)
-
-### Apps to Install First
-1. **Termux** — install from [F-Droid](https://f-droid.org/packages/com.termux/) (NOT Play Store — the Play Store version is outdated)
-2. **Termux:API** — from [F-Droid](https://f-droid.org/packages/com.termux.api/)
-3. Grant Termux:API microphone and notification permissions in Android Settings
+> **Mobile tip:** Copy and paste **one line at a time**. Each command block
+> below contains a single command. Do not copy multiple blocks at once.
 
 ---
 
-## Step 1 — Termux Bootstrap
+## Before You Begin
 
-Open Termux and run:
+### Install These Apps First (from F-Droid)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/c10vis-poem/claude-android-skill/claude/busy-wright-OKBXH/android-cowork/setup/1_termux_bootstrap.sh | bash
+1. **Termux** — [f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)
+2. **Termux:API** — [f-droid.org/packages/com.termux.api](https://f-droid.org/packages/com.termux.api/)
+
+> Do **not** use the Play Store versions — they are outdated.
+
+After installing both apps, open **Android Settings → Apps → Termux:API**
+and grant **Microphone** and **Notifications** permissions.
+
+### Accounts You Need
+
+- Google Cloud account with Vertex AI enabled
+- Claude.ai Pro account (or Anthropic API key)
+- Supabase project for OB1 brain (free tier works)
+
+---
+
+## Step 1 — Bootstrap Termux
+
+Open Termux. Copy and paste **line 1**, press Enter, wait for it to finish.
+Then copy and paste **line 2**, press Enter.
+
+**Line 1:**
+```
+REPO=https://raw.githubusercontent.com/c10vis-poem/claude-android-skill/claude/busy-wright-OKBXH
 ```
 
-Or copy the script and run it. This installs:
-- Core packages (git, curl, wget, python, nodejs-lts, cmake, clang)
-- Termux:API bridge (`pkg install termux-api`)
-- pipx for Python tool isolation
-- Storage permission grant
+**Line 2:**
+```
+curl -fsSL $REPO/install.sh | bash
+```
+
+This installs: git, python, nodejs, cmake, clang, ffmpeg, sox, termux-api, pipx.
+
+Wait for it to finish (2–5 min depending on connection speed).
 
 ---
 
-## Step 2 — Claude Code + SuperClaude
+## Step 2 — Install Claude Code + SuperClaude
 
-```bash
+Copy and paste this one line:
+
+```
 bash ~/android-cowork/setup/2_claude_superclaude.sh
 ```
 
-This installs:
-- Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
-- SuperClaude framework: `pipx install superclaude && superclaude install`
-- All 30 slash commands + 20 agents in `~/.claude/`
+This installs Claude Code CLI and all 30 SuperClaude slash commands.
 
-After running, set your API key (used as fallback when Vertex is not set):
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+When it finishes, set your API key:
+
+```
+export ANTHROPIC_API_KEY="sk-ant-YOUR-KEY-HERE"
 ```
 
 ---
 
-## Step 3 — Vertex AI Authentication (Use Your GCP Credits)
+## Step 3 — Connect Your GCP Credits (Vertex AI)
 
-```bash
+Run this:
+
+```
 bash ~/android-cowork/setup/3_vertex_ai_auth.sh
 ```
 
-This:
-1. Installs Google Cloud SDK in Termux
-2. Runs `gcloud auth application-default login` (opens browser)
-3. Sets `CLAUDE_CODE_USE_VERTEX=1` in your shell profile
-4. Writes `~/android-cowork/config/vertex_env.sh` with your project settings
+It will open a browser for Google login. Sign in with your GCP account.
 
-Edit `config/vertex_env.sh` to fill in your project ID and region:
-```bash
-export ANTHROPIC_VERTEX_PROJECT_ID="your-actual-project-id"
-export CLOUD_ML_REGION="us-east5"   # us-east5 has best Claude availability
+Then edit the config to add your project ID:
+
+```
+nano ~/android-cowork/config/vertex_env.sh
 ```
 
-To activate Vertex AI routing for any session:
-```bash
+Change `YOUR_GCP_PROJECT_ID` to your actual project ID. Save: **Ctrl+X → Y → Enter**.
+
+Activate Vertex AI for the current session:
+
+```
 source ~/android-cowork/config/vertex_env.sh
-claude  # Now uses your GCP credits
+```
+
+To activate automatically every time Termux opens:
+
+```
+echo 'source ~/android-cowork/config/vertex_env.sh' >> ~/.bashrc
 ```
 
 ---
 
-## Step 4 — Local Voice (Whisper STT + Piper TTS)
+## Step 4 — Local Voice (Offline STT + TTS)
 
-```bash
+Run this (takes ~10 min — it builds Whisper from source):
+
+```
 bash ~/android-cowork/setup/4_voice_setup.sh
 ```
 
-This builds:
-- **Whisper.cpp** from source (ARM64 optimized, ~10 min build)
-  - Downloads `ggml-base.en.bin` model (142 MB, fast on mobile)
-  - Optionally `ggml-small.en.bin` (466 MB, more accurate)
-- **Piper TTS** pre-compiled binary for aarch64 (no build needed)
-  - Downloads `en_US-ryan-high` voice model (60 MB, natural sounding)
+Install Kokoro TTS (preferred voice engine):
 
-Test voice round-trip:
-```bash
+```
+bash ~/android-cowork/setup/4b_kokoro_tts.sh
+```
+
+Test that voice works:
+
+```
 python3 ~/android-cowork/voice/voice_bridge.py --test
 ```
 
 ---
 
-## Step 5 — OB1 Open Brain Connection
+## Step 5 — OB1 Persistent Brain
 
-You need a Supabase project with OB1 schema. See the [OB1 setup guide](https://github.com/c10vis-poem/ob1/blob/main/docs/01-getting-started.md).
+Set your Supabase credentials (one line each):
 
-Once you have Supabase credentials, set them:
-```bash
-export SUPABASE_URL="https://your-project.supabase.co"
+```
+export SUPABASE_URL="https://YOUR-PROJECT.supabase.co"
+```
+
+```
 export SUPABASE_SERVICE_KEY="your-service-role-key"
 ```
 
-Install and configure the OB1 MCP server:
-```bash
-npm install -g @ob1/mcp-server   # or local install from the ob1 repo
-```
+Copy the Claude Code settings:
 
-Copy the MCP config into Claude Code's project settings:
-```bash
-mkdir -p ~/.claude
+```
 cp ~/android-cowork/config/claude_settings_android.json ~/.claude/settings.json
 ```
 
-Edit `~/.claude/settings.json` to fill in your OB1 server path and Supabase credentials.
+Edit the settings file to fill in your Supabase credentials:
+
+```
+nano ~/.claude/settings.json
+```
+
+Save: **Ctrl+X → Y → Enter**.
 
 ---
 
-## Step 6 — ReasoningBank Memory Hook
+## Step 6 — Test ReasoningBank Hook
 
-The Stop hook in `config/claude_settings_android.json` automatically calls
-`agent/reasoning_capture.py` at the end of every Claude Code session.
-This stores session summaries and learned patterns into OB1.
-
-To test manually:
-```bash
+```
 python3 ~/android-cowork/agent/reasoning_capture.py --dry-run
 ```
+
+If it prints session info without errors, you're set.
+From now on the hook fires automatically at the end of every Claude session.
 
 ---
 
 ## Daily Usage
 
-### Voice Mode (Hands-Free)
-```bash
+### Voice Mode
+
+Activate Vertex (if not in ~/.bashrc yet):
+
+```
 source ~/android-cowork/config/vertex_env.sh
+```
+
+Start voice loop:
+
+```
 python3 ~/android-cowork/voice/voice_bridge.py
 ```
-Press **Enter** → speak → press **Enter** again to stop recording.
-Claude responds via Piper TTS. Say "stop" or "exit" to quit.
 
-### Standard CLI Mode
-```bash
+Press **Enter** → speak → press **Enter** to stop. Claude replies via Kokoro TTS.
+Say **"stop"** or **"exit"** to quit.
+
+### Standard Claude Code
+
+```
 source ~/android-cowork/config/vertex_env.sh
-claude  # Full Claude Code with SuperClaude
 ```
 
-Super-Claude commands always available:
-- `/sc:implement` — code generation with confidence checks
-- `/sc:research` — web research + OB1 brain recall
-- `/sc:pm` — project management and task breakdown
-- `@android-cowork-agent` — Android-specific agentic help
-
-### Agentic Background Task
-```bash
-~/android-cowork/agent/android_task_runner.sh "refactor the auth module and run tests"
-# Phone notification when complete
+```
+claude
 ```
 
-### Claude.ai Web (No Terminal Needed)
-Open Chrome → `claude.ai/code` — full Claude Code experience in browser,
-no Termux needed. Uses your Pro account.
+### Background Task
+
+```
+~/android-cowork/agent/android_task_runner.sh "your task here"
+```
+
+You get a phone notification when it finishes.
+
+---
+
+## Horizons UI (Installable App)
+
+Open this URL in Chrome on your phone:
+
+```
+https://cdn.jsdelivr.net/gh/c10vis-poem/claude-skills@claude/busy-wright-OKBXH/horizons/index.html
+```
+
+Tap **3-dot menu → Add to Home Screen** to install it as a standalone app.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| `command not found: claude` | Run `npm install -g @anthropic-ai/claude-code` and add `~/.npm-global/bin` to PATH |
-| Vertex AI auth fails | Re-run `gcloud auth application-default login` in Termux |
-| Microphone not working | Check Termux:API app is installed + microphone permission granted |
-| Whisper build fails | Try `pkg install cmake clang` then re-run build |
-| Piper binary fails | Re-download aarch64 release from GitHub |
-| OB1 MCP not connecting | Verify SUPABASE_URL and key are correct; check Node version ≥18 |
+**`command not found: claude`**
 
----
+```
+npm install -g @anthropic-ai/claude-code
+```
 
-## Resource Usage
+**Vertex AI auth fails**
 
-| Component | RAM | Storage | Battery |
-|-----------|-----|---------|--------|
-| Claude Code CLI | ~80 MB | 200 MB | Low |
-| Whisper base.en | ~200 MB | 142 MB | Medium (inference) |
-| Piper TTS | ~100 MB | 60 MB | Low |
-| OB1 MCP server | ~50 MB | — | Low |
-| **Total idle** | ~430 MB | ~400 MB | Low |
+```
+gcloud auth application-default login
+```
+
+**Microphone not working**
+- Make sure Termux:API app is installed (not just Termux)
+- Grant microphone permission to Termux:API in Android Settings
+
+**Whisper build fails**
+
+```
+pkg install cmake clang
+```
+
+Then re-run step 4.
+
+**OB1 MCP not connecting**
+- Check SUPABASE_URL starts with `https://`
+- Verify your service role key (not the anon key)
+- Run: `node --version` — must be 18 or higher
